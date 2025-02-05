@@ -4,22 +4,43 @@ import flet as ft
 from datetime import datetime
 from notes import TodoApp  # Убедитесь, что этот модуль существует
 
-
 def init_db():
     conn = sqlite3.connect('chat.db')
     cur = conn.cursor()
+    
+    # Создание таблиц
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
             password TEXT,
-            user_id TEXT
+            user_id TEXT UNIQUE
         )
     ''')
+    
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            user_name TEXT,
+            text TEXT,
+            timestamp DATETIME,
+            color TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id TEXT PRIMARY KEY,
+            background_color TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
-# Получение пользователя из базы данных
 def get_user(username):
     conn = sqlite3.connect('chat.db')
     cur = conn.cursor()
@@ -28,7 +49,6 @@ def get_user(username):
     conn.close()
     return user
 
-# Создание нового пользователя
 def create_user(username, password, user_id):
     conn = sqlite3.connect('chat.db')
     cur = conn.cursor()
@@ -41,7 +61,6 @@ def create_user(username, password, user_id):
         return False
     finally:
         conn.close()
-
 
 def main(page: ft.Page):
     page.title = "Flet Chat"
@@ -91,50 +110,38 @@ def main(page: ft.Page):
         page.update()
 
     def select_color(e, color):
-        nonlocal selected_color
+        nonlocal selected_color, user_id
         selected_color = color
+        
+        # Сохраняем цвет в настройки пользователя
+        conn = sqlite3.connect('chat.db')
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT OR REPLACE INTO user_settings 
+            (user_id, background_color) 
+            VALUES (?, ?)
+        ''', (user_id, color))
+        conn.commit()
+        conn.close()
+        
         color_dlg.open = False
         page.update()   
 
-
-    color_palette = [
-        ft.colors.RED_500,
-        ft.colors.PINK_500,
-        ft.colors.PURPLE_500,
-        ft.colors.DEEP_PURPLE_500,
-        ft.colors.INDIGO_500,
-        ft.colors.BLUE_500,
-        ft.colors.CYAN_500,
-        ft.colors.TEAL_500,
-        ft.colors.GREEN_500,
-        ft.colors.LIME_500,
-        ft.colors.AMBER_500,
-        ft.colors.ORANGE_500,
-        ft.colors.WHITE
-    ]
-
-    # Создаем сетку цветов
-    color_grid = ft.GridView(
-        runs_count=4,
-        max_extent=50,
-        child_aspect_ratio=1.0,
-        spacing=5,
-        run_spacing=5,
-    )
-
-    for color in color_palette:
-        color_grid.controls.append(
-            ft.Container(
-                content=ft.IconButton(
-                    icon=ft.icons.CIRCLE,
-                    icon_size=40,
-                    icon_color=color,
-                    on_click=lambda e, c=color: select_color(e, c),
-                ),
-                alignment=ft.alignment.center,
-            )
-        )
-     
+    color = [
+                    ft.colors.RED_500,
+                    ft.colors.PINK_500,
+                    ft.colors.PURPLE_500,
+                    ft.colors.DEEP_PURPLE_500,
+                    ft.colors.INDIGO_500,
+                    ft.colors.BLUE_500,
+                    ft.colors.CYAN_500,
+                    ft.colors.TEAL_500,
+                    ft.colors.GREEN_500,
+                    ft.colors.LIME_500,
+                    ft.colors.AMBER_500,
+                    ft.colors.ORANGE_500,
+                    ft.colors.WHITE
+                ]    
 
     color_dlg = ft.AlertDialog(
         modal=True,
@@ -150,27 +157,15 @@ def main(page: ft.Page):
                     ft.IconButton(
                         icon=ft.icons.CIRCLE,
                         icon_size=40,
-                        icon_color=color,
-                        on_click=lambda e, c=color: select_color(e, c),
+                        icon_color=colors,
+                        on_click=lambda e, c=colors: select_color(e, c),
                     )
-                ) for color in [
-                    ft.colors.RED_500,
-                    ft.colors.PINK_500,
-                    ft.colors.PURPLE_500,
-                    ft.colors.DEEP_PURPLE_500,
-                    ft.colors.INDIGO_500,
-                    ft.colors.BLUE_500,
-                    ft.colors.CYAN_500,
-                    ft.colors.TEAL_500,
-                    ft.colors.GREEN_500,
-                    ft.colors.LIME_500,
-                    ft.colors.AMBER_500,
-                    ft.colors.ORANGE_500,
-                    ft.colors.WHITE
-                ]
+                ) for colors in color
             ]
         ),
-        actions=[ft.TextButton('Закрыть', on_click=close_dlg)],
+        actions=[ft.TextButton('Закрыть', on_click=close_dlg), 
+        ],
+          
     )
 
 
@@ -183,9 +178,10 @@ def main(page: ft.Page):
                 content=ft.Column([
                     ft.Container(
                         content=chat,
-                        border=ft.border.all(1, ft.colors.BLUE_100),
+                        border=ft.border.all(1, ft.colors.BLUE_100), # Обводка 
                         border_radius=5,
                         padding=10,
+                        bgcolor=selected_color # Цвет заднего фона 
                     ),
                     chat_row
                 ])
@@ -199,7 +195,7 @@ def main(page: ft.Page):
                 text="Настройки",
                 icon=ft.icons.SETTINGS,
                 content=ft.Column([
-                    ft.ElevatedButton(text='Выбрать цвет фона', on_click=open_dlg)
+                    ft.ElevatedButton(text='Выбрать цвет фона сообщений', on_click=open_dlg),
                 ], spacing=20)
             )
         ],
@@ -253,7 +249,7 @@ def main(page: ft.Page):
 
 
     def submit(e):
-        nonlocal auth, user_id, local_user_name
+        nonlocal auth, user_id, local_user_name, selected_color
         username = inputField_name.value.strip()
         password = inputField_password.value.strip()
         
@@ -270,6 +266,9 @@ def main(page: ft.Page):
                 local_user_name = username
                 auth = True
                 error_text.visible = False
+                
+                # Загрузка настроек по умолчанию
+                selected_color = ft.colors.INDIGO_500
                 page.go("/chat")
             else:
                 error_text.value = "Имя пользователя занято!"
@@ -280,6 +279,36 @@ def main(page: ft.Page):
                 local_user_name = username
                 auth = True
                 error_text.visible = False
+                
+                # Загрузка сохраненных настроек
+                conn = sqlite3.connect('chat.db')
+                cur = conn.cursor()
+                cur.execute('SELECT background_color FROM user_settings WHERE user_id = ?', (user_id,))
+                setting = cur.fetchone()
+                selected_color = setting[0] if setting else ft.colors.INDIGO_500
+                conn.close()
+                
+                # Загрузка истории сообщений
+                conn = sqlite3.connect('chat.db')
+                cur = conn.cursor()
+                cur.execute('''
+                    SELECT user_id, user_name, text, timestamp, color 
+                    FROM messages 
+                    ORDER BY timestamp
+                ''')
+                messages = cur.fetchall()
+                conn.close()
+                
+                # Отображение истории
+                for msg in messages:
+                    on_message({
+                        "user_id": msg[0],
+                        "user_name": msg[1],
+                        "text": msg[2],
+                        "timestamp": msg[3],
+                        "color": msg[4]
+                    })
+                
                 page.go("/chat")
             else:
                 error_text.value = "Неверный пароль!"
@@ -330,12 +359,12 @@ def main(page: ft.Page):
             content=ft.Text(
                 display_name[0].upper(),  # Первая буква имени
                 size=20,
-                color=ft.colors.WHITE,
+                color=ft.colors.WHITE, # Цвет текста на аве
                 weight=ft.FontWeight.BOLD,
             ),
             width=40,
             height=40,
-            bgcolor=ft.colors.BLUE_700,
+            bgcolor=ft.colors.BLUE_700, # Задный фон аватарки
             border_radius=20,
             alignment=ft.alignment.center
         )
@@ -387,7 +416,7 @@ def main(page: ft.Page):
                         horizontal_alignment='spasebettwen'
                     )
                 ],
-                spacing=10
+                spacing=7
             ),
             padding=ft.padding.symmetric(vertical=5)
         )
@@ -412,15 +441,27 @@ def main(page: ft.Page):
     page.pubsub.subscribe(on_message)
 
     def send_click(e):
-        nonlocal local_user_name
-        local_user_name = inputField_name.value.strip()
-        
+        nonlocal local_user_name, user_id, selected_color
         if new_message.value.strip() and local_user_name:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            # Сохраняем сообщение в БД
+            conn = sqlite3.connect('chat.db')
+            cur = conn.cursor()
+            cur.execute('''
+                INSERT INTO messages 
+                (user_id, user_name, text, timestamp, color)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, local_user_name, new_message.value, timestamp, selected_color))
+            conn.commit()
+            conn.close()
+            
             page.pubsub.send_all({
                 "text": new_message.value,
                 "user_name": local_user_name,
                 "user_id": user_id,
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "timestamp": timestamp,
+                "color": selected_color,
             })
             new_message.value = ""
             page.update()
